@@ -17,6 +17,13 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET
     CACHE STRING "Minimum macOS version"
 )
 
+# arm64e: the amfid code-patch stub/trampoline and godmfi_decide's PAC handling assume arm64e
+# (ptrauth). Mixing a plain-arm64 dylib into the arm64e amfid is unproven — keep everything arm64e.
+set(CMAKE_OSX_ARCHITECTURES
+    "arm64e"
+    CACHE STRING "Target architecture"
+)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CODESIGN_IDENTITY
@@ -95,14 +102,69 @@ function(syphon_codesign target)
 
 endfunction()
 
+# Ad-hoc codesign with NO entitlements (for the godmfi dylib + godmfi-launch, which need none;
+# the god identity is applied out-of-band when a binary must carry restricted entitlements).
+function(godmfi_codesign_plain target)
+    add_custom_command(
+        TARGET ${target}
+        POST_BUILD
+        COMMAND codesign -f -s "${CODESIGN_IDENTITY}" "$<TARGET_FILE:${target}>"
+        COMMENT "Codesigning ${target} (plain)"
+    )
+endfunction()
+
 
 # ─────────────────────────────────────────────
-# Fangs
+# godmfi — shared tweak (the cert-pin verdict dylib) + shared injector core
+# ─────────────────────────────────────────────
+
+# Shared amfid code-patch core, used by BOTH fangs and godmfi-launch.
+set(GODMFI_CORE
+    godmfi/godmfi_patch.c
+    godmfi/godmfi_stub.s
+)
+set_source_files_properties(godmfi/godmfi_stub.s PROPERTIES LANGUAGE C)
+
+# The cert-pin verdict dylib (loaded into amfid by the code-patch stub). dlopen'd by absolute
+# path, so no install_name is needed.
+add_library(godmfi SHARED
+    godmfi/godmfi.m
+)
+set_target_properties(godmfi PROPERTIES PREFIX "" OUTPUT_NAME "godmfi" SUFFIX ".dylib")
+target_link_libraries(godmfi PRIVATE
+    "-framework Foundation"
+    "-framework Security"
+    "-framework CoreFoundation"
+)
+godmfi_codesign_plain(godmfi)
+
+
+# ─────────────────────────────────────────────
+# godmfi-launch — bootstrap wrapper around the injector core
+# ─────────────────────────────────────────────
+
+add_executable(godmfi-launch
+    godmfi-launch/godmfi_launch.c
+    ${GODMFI_CORE}
+)
+target_include_directories(godmfi-launch PRIVATE godmfi)
+target_link_libraries(godmfi-launch PRIVATE
+    "-framework Foundation"
+    "-lobjc"
+)
+godmfi_codesign_plain(godmfi-launch)
+
+
+# ─────────────────────────────────────────────
+# Fangs — generic injector + the godmfi amfi-verdict-override trajectory
 # ─────────────────────────────────────────────
 
 add_executable(fangs
     syphon/main.m
+    ${GODMFI_CORE}
 )
+
+target_include_directories(fangs PRIVATE godmfi)
 
 target_link_libraries(fangs PRIVATE
     syphon
@@ -338,6 +400,6 @@ endif()
 # Install command-line tools
 # ─────────────────────────────────────────────
 
-install(TARGETS fangs
+install(TARGETS fangs godmfi-launch
     RUNTIME DESTINATION bin
 )

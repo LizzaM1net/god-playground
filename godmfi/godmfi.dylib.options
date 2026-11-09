@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Dedicated path, NOT DYLD injection. amfid is a restricted platform binary, so dyld strips
+         DYLD_INSERT_LIBRARIES from it (verified: amfi_check_dyld_policy_self / pruneEnvVars). So a
+         tweak with a "trajectory" is never DYLD-injected; fangs handles it specially.
+
+         amfi-verdict-override: fangs resolves amfid's -[AMFIPathValidator_macos validateWithError:]
+         offset (once, before warming this dylib), keeps this dylib's vnode warm, and code-patches
+         every amfid instance it sees spawn. The patch installs a stub that dlopen()s this dylib and
+         routes the real verdict through godmfi_decide (our verdict is returned back into the check
+         function); the dylib's constructor then swizzles validateWithError: for all later calls. -->
+    <key>trajectory</key>
+    <string>amfi-verdict-override</string>
+</dict>
+</plist>

@@ -4,6 +4,99 @@
 #include <mach/task.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <ptrauth.h>
+#include <dlfcn.h>
+#include "godmfi_patch.h"
+
+// ---- amfi-verdict-override trajectory --------------------------------------------------------
+// A tweak whose .options sets trajectory="amfi-..." is NOT DYLD-injected (amfid, a restricted
+// platform binary, strips DYLD_INSERT_LIBRARIES — proven). Instead fangs resolves amfid's
+// validateWithError: offset once, keeps the dylib's vnode warm, and code-patches every amfid it
+// sees spawn so the stub dlopen()s the dylib and routes the verdict through godmfi_decide.
+//
+// Hot-reload: fangs holds each trajectory dylib dlopen'd to keep its vnode cs_blob warm. If the
+// file is updated (atomic rename → new inode) or rewritten, amfi_watch_reload() dlclose()s our
+// held handle at once — releasing the old inode so the update can't fault us — and marks it for
+// LAZY re-warm (re-dlopen only when the next amfid actually needs patching). amfid is never
+// touched during the swap. NB the safe way to UPDATE the file is an atomic rename (install/mv),
+// never `cp` over the live inode — a cp truncates the inode we have mapped and SIGKILLs us before
+// we can react, and a dying fangs panics launchd (see macos-launchd-sigtrap-fangs-breakpoint).
+#define AMFI_MAX 8
+static uint64_t g_amfi_off = 0;        // validateWithError: offset within AppleMobileFileIntegrity
+static char     g_amfi_img[1024];      // MFI image path (locates amfid's load base)
+static int      g_amfi_ready = 0;      // offset resolved + at least one trajectory dylib present
+static NSArray<NSString *> *g_amfi_dylibs = nil;  // dylibs to warm + patch amfid with
+static void    *g_amfi_handle[AMFI_MAX];          // held dlopen handles (NULL = released / cold)
+static ino_t    g_amfi_ino[AMFI_MAX];             // file inode when warmed
+static time_t   g_amfi_mtime[AMFI_MAX];           // file mtime when warmed
+static volatile pid_t g_amfi_pending = 0;         // a spawned amfid awaiting its code-patch
+
+// Lazily dlopen trajectory dylib i (warm its vnode) and record its inode+mtime. No-op if held.
+static void amfi_warm(unsigned i) {
+    if (i >= [g_amfi_dylibs count] || i >= AMFI_MAX || g_amfi_handle[i]) return;
+    const char *p = [g_amfi_dylibs[i] UTF8String];
+    void *h = dlopen(p, RTLD_NOW);
+    if (!h) { printf("[amfi] WARN dlopen failed: %s (%s)\n", p, dlerror()); fflush(stdout); return; }
+    struct stat st;
+    g_amfi_handle[i] = h;
+    g_amfi_ino[i]    = (stat(p, &st) == 0) ? st.st_ino : 0;
+    g_amfi_mtime[i]  = (stat(p, &st) == 0) ? st.st_mtimespec.tv_sec : 0;
+    printf("[amfi] warmed vnode %s (ino %llu)\n", p, (unsigned long long)g_amfi_ino[i]);
+    fflush(stdout);
+}
+
+// Resolve the offset (MUST precede any godmfi.dylib dlopen — it swizzles the method locally) and
+// warm each trajectory dylib's vnode.
+static void amfi_setup(BOOL ammonia) {
+    @autoreleasepool {
+        g_amfi_dylibs = [PPOptionsLoader trajectoryLibrariesUsingAmmonia:ammonia withPrefix:@"amfi"];
+        if ([g_amfi_dylibs count] == 0) { g_amfi_ready = 0; return; }
+        if (!g_amfi_ready) {
+            if (godmfi_resolve_offset(&g_amfi_off, g_amfi_img, sizeof g_amfi_img)) g_amfi_ready = 1;
+            else { printf("[amfi] resolve failed — trajectory disabled\n"); fflush(stdout); return; }
+        }
+        for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++) amfi_warm(i);
+    }
+}
+
+// Cheap per-tick watch: if a warmed dylib's file changed (new inode or mtime) or vanished, release
+// our held handle immediately and mark it cold for lazy re-warm. Does NOT touch amfid.
+static void amfi_watch_reload(void) {
+    @autoreleasepool {
+        for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++) {
+            if (!g_amfi_handle[i]) continue;
+            struct stat st;
+            int ok = (stat([g_amfi_dylibs[i] UTF8String], &st) == 0);
+            if (!ok || st.st_ino != g_amfi_ino[i] || st.st_mtimespec.tv_sec != g_amfi_mtime[i]) {
+                dlclose(g_amfi_handle[i]);
+                g_amfi_handle[i] = NULL; g_amfi_ino[i] = 0; g_amfi_mtime[i] = 0;
+                printf("[amfi] %s changed on disk — released, re-warm lazily\n", [g_amfi_dylibs[i] UTF8String]);
+                fflush(stdout);
+            }
+        }
+    }
+}
+
+// One non-blocking attempt to code-patch a (freshly spawned) amfid. Lazily (re-)warms the patch
+// dylib first. Returns 1 if patched/already, 0 if not ready (caller retries next tick). Patches
+// with the first trajectory dylib — its constructor swizzles validateWithError: for later calls.
+static int amfi_try_patch(pid_t pid) {
+    if (!g_amfi_ready || pid <= 0 || [g_amfi_dylibs count] == 0) return 0;
+    for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++)
+        if (!g_amfi_handle[i]) amfi_warm(i);   // lazy re-warm after a hot-reload release
+    if (!g_amfi_handle[0]) return 0;           // patch dylib not warm yet (can't patch safely)
+    task_t task = TASK_NULL;
+    if (task_for_pid(mach_task_self(), pid, &task) != KERN_SUCCESS || task == TASK_NULL) return 0;
+    int done = 0;
+    uint64_t imp = godmfi_amfid_imp(task, g_amfi_off, g_amfi_img);
+    if (imp) {
+        int r = godmfi_patch_task(task, imp, [[g_amfi_dylibs firstObject] UTF8String]);
+        if (r >= 0) { done = 1; printf("[amfi] amfid pid=%d code-patched (r=%d)\n", pid, r); fflush(stdout); }
+    }
+    mach_port_deallocate(mach_task_self(), task);
+    return done;
+}
 
 task_t g_task;
 mach_port_t g_exc_port;
@@ -56,7 +149,11 @@ int main(void) {
     if (kr != KERN_SUCCESS) { fprintf(stderr, "task_for_pid(1): %s\n", mach_error_string(kr)); return 1; }
     printf("[+] attached to launchd (pid %d)\n", launchd_pid);
 
-    add_targ(dlsym(RTLD_DEFAULT, "__posix_spawn"), 1, "posix_spawn");
+    void *ps_targ = dlsym(RTLD_DEFAULT, "__posix_spawn");
+#if __has_feature(ptrauth_calls)
+    ps_targ = ptrauth_strip(ps_targ, ptrauth_key_function_pointer);
+#endif
+    add_targ(ps_targ, 1, "posix_spawn");
     if (g_ntarg == 0) { fprintf(stderr, "no targets\n"); return 1; }
 
     mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &g_exc_port);
@@ -81,12 +178,27 @@ int main(void) {
     g_opts_mtime = (stat("/opt/pluginplayground/current.options", &opts_st) == 0) ? opts_st.st_mtime : 0;
     printf("[+] options: disablePAC=%d legacyAmmonia=%d pauseInjection=%d\n",
            g_opts.disablePAC, g_opts.useLegacyAmmonia, g_opts.pauseInjection);
+    amfi_setup(g_opts.useLegacyAmmonia);
+    // Patch the amfid that is already running (the one that blessed us), if any — idempotent.
+    if (g_amfi_ready) g_amfi_pending = godmfi_find_amfid();
 
     while (g_running) {
         union {
             exc_req_t req;
             uint8_t pad[512];
         } msg;
+
+        // Cover launchd pool threads created since the last sweep. Under spawn load mach_msg
+        // rarely times out, so the timeout-only re-install never runs and new threads miss their
+        // breakpoint; sweep on a short timer regardless of load (install skips mid-step threads).
+        static uint64_t aw_last_sweep_ns = 0;
+        uint64_t aw_now_ns = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
+        if (aw_now_ns - aw_last_sweep_ns >= 15000000ULL) { install_hw_breakpoints(); aw_last_sweep_ns = aw_now_ns; }
+
+        // Hot-reload watch (release handles for on-disk-changed trajectory dylibs), then drain a
+        // pending amfid code-patch (one non-blocking attempt/tick; retries until readable).
+        amfi_watch_reload();
+        if (g_amfi_pending > 0 && amfi_try_patch(g_amfi_pending)) g_amfi_pending = 0;
 
         kr = mach_msg(&msg.req.head, MACH_RCV_MSG | MACH_RCV_TIMEOUT,
                       0, sizeof(msg), g_exc_port,
@@ -100,6 +212,7 @@ int main(void) {
                 g_opts_mtime = st.st_mtime;
                 printf("[+] options reloaded: disablePAC=%d legacyAmmonia=%d pauseInjection=%d\n",
                        g_opts.disablePAC, g_opts.useLegacyAmmonia, g_opts.pauseInjection);
+                amfi_setup(g_opts.useLegacyAmmonia);
             }
             continue;
         }
@@ -119,6 +232,10 @@ int main(void) {
                 clear_brk_and_reply(thread, &msg.req.head);
                 continue;
             }
+            // The state comes back with pc/lr/sp signed, and without the AMFI boot-arg the accessors
+            // below fail authentication (SIGBUS, measured on macOS 27.0). That kills fangs, and
+            // launchd then dies on the unhandled breakpoint. We only need the plain addresses.
+            arm_thread_state64_ptrauth_strip(state);
 
             int exc_pid = 0;
             pid_for_task(msg.req.task.name, &exc_pid);
@@ -136,7 +253,16 @@ int main(void) {
                 
                 if (path_ok) {
                     path[psz < PATH_MAX ? psz : PATH_MAX - 1] = '\0';
-                    
+
+                    // amfid can't be DYLD-injected (dyld strips DYLD_* from restricted binaries);
+                    // schedule a code-patch of this spawning amfid instead. exc_pid IS the amfid pid
+                    // (xpcproxy execs amfid in place). The loop patches it once its space is readable.
+                    if (g_amfi_ready && strcmp(path, "/usr/libexec/amfid") == 0) {
+                        g_amfi_pending = exc_pid;
+                        printf("[amfi] amfid spawning pid=%d — scheduled for code-patch\n", exc_pid);
+                        fflush(stdout);
+                    }
+
                     libs = [PPOptionsLoader librariesForInsertionUsingAmmonia:g_opts.useLegacyAmmonia
                                                                     toExePath:path];
                     
@@ -200,7 +326,7 @@ int main(void) {
                             if (!found && count > 0) {
                             size_t inject_len = strlen(inject) + 1;
                             mach_vm_address_t stack_dest =
-                                (state.__sp - 4096) & ~(mach_vm_address_t)0xF;
+                                (arm_thread_state64_get_sp(state) - 4096) & ~(mach_vm_address_t)0xF;
                             kr = mach_vm_write(ctask, stack_dest,
                                     (vm_offset_t)inject,
                                     (mach_msg_type_number_t)inject_len);
@@ -265,11 +391,11 @@ int main(void) {
 
             int cur = -1;
             for (int i = 0; i < g_ntarg; i++) {
-                if (state.__pc == g_targs[i].addr) { cur = i; break; }
+                if (arm_thread_state64_get_pc(state) == g_targs[i].addr) { cur = i; break; }
             }
             if (cur < 0) {
                 int si = find_step(thread);
-                if (si >= 0 && state.__pc == g_steps[si].ret_addr) {
+                if (si >= 0 && arm_thread_state64_get_pc(state) == g_steps[si].ret_addr) {
                     if (state.__x[0] == 0) {
                         pid_t spawned;
                         mach_vm_size_t s = 0;
@@ -341,7 +467,7 @@ int main(void) {
             mach_msg_type_number_t dsc = ARM_DEBUG_STATE64_COUNT;
             thread_get_state(thread, ARM_DEBUG_STATE64, (thread_state_t)&ds, &dsc);
             ds.__bcr[cur] = HW_BRK_DIS;
-            ds.__bvr[ret_bk] = state.__lr;
+            ds.__bvr[ret_bk] = arm_thread_state64_get_lr(state);
             ds.__bcr[ret_bk] = HW_BRK_EN;
             thread_set_state(thread, ARM_DEBUG_STATE64, (thread_state_t)&ds, dsc);
 
@@ -350,7 +476,7 @@ int main(void) {
             add_step(thread, ret_bk);
             si = g_nsteps - 1;
             g_steps[si].entry_idx = cur;
-            g_steps[si].ret_addr = state.__lr;
+            g_steps[si].ret_addr = arm_thread_state64_get_lr(state);
             g_steps[si].child_pid_addr = child_ptr;
 
             fflush(stdout);

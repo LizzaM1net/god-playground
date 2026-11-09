@@ -183,10 +183,15 @@ static NSArray<NSString *> *gGlobalBlacklist = nil;
     NSString *completePath = [NSString stringWithFormat:@"%@/%@.options", directory, name];
     NSURL *URL = [NSURL fileURLWithPath:completePath];
     NSDictionary *optionsDict = [NSDictionary dictionaryWithContentsOfURL:URL];
-    
+
     if (!optionsDict)
         return NO;
-    
+
+    // Trajectory tweaks are handled by a dedicated path (see trajectoryLibrariesUsingAmmonia:),
+    // never DYLD-injected.
+    if ([optionsDict objectForKey:@"trajectory"])
+        return NO;
+
     BOOL shouldBeLoadedToExe = YES;
     
     NSArray *frameworks = [optionsDict objectForKey:@"frameworkDependencies"];
@@ -308,6 +313,20 @@ static NSArray<NSURL *> *DylibURLsInDirectory(NSString *directory)
     }
     
     return [PPFangsLibraries fangsLibrariesWithLibraryPathArray:insertionRet];
+}
+
++ (NSArray<NSString *> *)trajectoryLibrariesUsingAmmonia:(BOOL)ammonia withPrefix:(NSString *)prefix{
+    NSString *dir = ammonia ? @"/private/var/ammonia/core/tweaks/" : @"/opt/pluginplayground/tweaks/";
+    NSArray<NSURL *> *files = DylibURLsInDirectory(dir);
+    NSMutableArray<NSString *> *ret = [NSMutableArray array];
+    for (NSURL *URL in files){
+        NSString *optionsPath = [NSString stringWithFormat:@"%@/%@.options", dir, [URL lastPathComponent]];
+        NSDictionary *opt = [NSDictionary dictionaryWithContentsOfFile:optionsPath];
+        NSString *traj = [opt objectForKey:@"trajectory"];
+        if ([traj isKindOfClass:[NSString class]] && [traj hasPrefix:prefix])
+            [ret addObject:[URL path]];
+    }
+    return ret;
 }
 
 @end

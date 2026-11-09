@@ -19,12 +19,17 @@ mkdir -p "$PKG_ROOT/bin" "$PKG_ROOT/tweaks"
 mkdir -p "$STAGING/root/Applications"
 
 cp "$SRC/.build/fangs"          "$PKG_ROOT/bin/"
+cp "$SRC/.build/godmfi-launch"  "$PKG_ROOT/bin/"
 cp -R "$SRC/.build/configurator.app" "$STAGING/root/Applications/Plugin Playground.app/"
+
+# godmfi cert-pin tweak: the dylib fangs warms + patches amfid with, plus its trajectory options
+cp "$SRC/.build/godmfi.dylib"          "$PKG_ROOT/tweaks/"
+cp "$SRC/godmfi/godmfi.dylib.options"  "$PKG_ROOT/tweaks/"
 
 # tweaks directory owned by the user
 chown "$(id -u):$(id -g)" "$PKG_ROOT/tweaks"
 
-chmod 755 "$PKG_ROOT/bin/fangs"
+chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/godmfi-launch"
 
 echo "[+] Building component package..."
 pkgbuild --root "$STAGING/root" \
