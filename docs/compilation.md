@@ -8,7 +8,7 @@ Role: Automates building components and packaging them into the final installer.
 
 ## CMakeLists.txt
 What it is: The project build configuration.
-Role: Specifies targets, fetches dependencies like Slint, and coordinates the compilation of grant, fangs, and the configurator.
+Role: Specifies targets, fetches dependencies like Slint, and coordinates the compilation of fangs, godmfi-launch, and the configurator.
 
 ## Nix (Optional)
 What it is: A declarative build environment using flake.nix.

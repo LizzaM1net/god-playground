@@ -19,13 +19,12 @@ mkdir -p "$PKG_ROOT/bin" "$PKG_ROOT/tweaks"
 mkdir -p "$STAGING/root/Applications"
 
 cp "$SRC/.build/fangs"          "$PKG_ROOT/bin/"
-cp "$SRC/.build/grant"          "$PKG_ROOT/bin/"
 cp -R "$SRC/.build/configurator.app" "$STAGING/root/Applications/Plugin Playground.app/"
 
 # tweaks directory owned by the user
 chown "$(id -u):$(id -g)" "$PKG_ROOT/tweaks"
 
-chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/grant"
+chmod 755 "$PKG_ROOT/bin/fangs"
 
 echo "[+] Building component package..."
 pkgbuild --root "$STAGING/root" \

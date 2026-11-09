@@ -41,4 +41,4 @@ To enable the native `arm64e` ABI:
    *(Note: Modifying `boot-args` requires System Integrity Protection (SIP) to be appropriately disabled or adjusted from Recovery Mode.)*
 3. **Reboot** your Mac.
 
-Once enabled, your natively-compiled `arm64e` builds of `fangs` and `grant` will be able to inject into system processes with full PAC enforcement intact.
+Once enabled, your natively-compiled `arm64e` builds of `fangs` will be able to inject into system processes with full PAC enforcement intact.

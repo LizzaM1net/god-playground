@@ -119,16 +119,6 @@
               fi
             '';
 
-            launchd.daemons."com.pluginplayground.grant" = {
-              serviceConfig = {
-                Label = "com.pluginplayground.grant";
-                ProgramArguments = [ "${cfg.package}/bin/grant" ];
-                RunAtLoad = true;
-                KeepAlive = true;
-                StandardOutPath = "/var/log/pluginplayground/grant.log";
-                StandardErrorPath = "/var/log/pluginplayground/grant.err";
-              };
-            };
           };
         };
     };

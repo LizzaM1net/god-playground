@@ -3,7 +3,7 @@
 #import "PPDaemonStatus.h"
 #import <libproc.h>
 
-NSString* const plistPath = @"/Library/LaunchDaemons/com.pluginplayground.grant.plist";
+NSString* const plistPath = @"/Library/LaunchDaemons/com.pluginplayground.godmfi.plist";
 
 @implementation PPDaemonStatus
 + (BOOL)fangsIsRunning {
@@ -53,12 +53,13 @@ NSString* const plistPath = @"/Library/LaunchDaemons/com.pluginplayground.grant.
         return;
     
     NSDictionary *plistDict = @{
-        @"Label" : @"com.pluginplayground.grant",
-        @"ProgramArguments" : @[@"/opt/pluginplayground/bin/grant"],
+        @"Label" : @"com.pluginplayground.godmfi",
+        @"ProgramArguments" : @[@"/opt/pluginplayground/bin/godmfi-launch",
+                                @"/opt/pluginplayground/bin/fangs"],
         @"RunAtLoad" : @YES,
         @"KeepAlive" : @YES,
-        @"StandardOutPath" : @"/var/log/pluginplayground/grant.log",
-        @"StandardErrorPath" : @"/var/log/pluginplayground/grant.err"
+        @"StandardOutPath" : @"/var/log/pluginplayground/godmfi.log",
+        @"StandardErrorPath" : @"/var/log/pluginplayground/godmfi.err"
     };
 
     NSData *plistData =

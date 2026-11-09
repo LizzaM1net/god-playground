@@ -112,24 +112,6 @@ syphon_codesign(fangs)
 
 
 # ─────────────────────────────────────────────
-# Privilege grant tool
-# ─────────────────────────────────────────────
-
-add_executable(grant
-    grant/amfid_handler.m
-    grant/main.m
-)
-
-target_include_directories(grant PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/grant"
-)
-
-target_link_libraries(grant PRIVATE
-    "-framework Foundation"
-)
-
-
-# ─────────────────────────────────────────────
 # Configurator
 # ─────────────────────────────────────────────
 
@@ -356,6 +338,6 @@ endif()
 # Install command-line tools
 # ─────────────────────────────────────────────
 
-install(TARGETS fangs grant
+install(TARGETS fangs
     RUNTIME DESTINATION bin
 )

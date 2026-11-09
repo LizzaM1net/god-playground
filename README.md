@@ -62,4 +62,3 @@ Uninstallation is as simple as `./uninstall.sh`.
 - [Configurator](docs/configurator.md)
 - [Defaults CLI](docs/defaults.md)
 - [Fangs](docs/fangs.md)
-- [Grant](docs/grant.md)
