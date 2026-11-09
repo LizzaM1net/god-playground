@@ -51,27 +51,73 @@ static void load_pin(void) {
     if (d[@"signer_type"]) { gHasSigner = YES; gSigner = [d[@"signer_type"] integerValue]; }
 }
 
-// Compare a SecStaticCode's leaf cert SHA-256 to the god pin. Uses kSecCSSigningInformation,
-// which returns the cert chain WITHOUT re-verifying against Apple anchors — so it still yields
-// our god leaf even though amfid's own verdict is "invalid".
+// Decide whether `code` is a genuine god binary.
+//
+// TWO things must hold, and the old code only checked the first:
+//   1. Identity: the leaf signing cert is exactly our pinned god cert (SHA-256 == pin).
+//   2. Possession: the code signature is CRYPTOGRAPHICALLY VALID — the CMS was actually produced
+//      by the private key matching that leaf cert, over this code's CodeDirectory.
+//
+// Checking (1) alone — hashing the cert extracted via kSecCSSigningInformation — is NOT a
+// signature check: that cert is public (god.crt + the pin are world-readable), and the extracted
+// cert chain is whatever bytes are embedded in the signature blob, verified or not. An attacker
+// who embeds the public god cert in a binary they signed with their OWN key would pass (1). So we
+// MUST also verify (2).
+//
+// We can't lean on amfid's own verdict (it rejects the god cert as an untrusted anchor), but we
+// CAN ask Security to verify the signature itself against a requirement pinned to the god cert.
+// SecStaticCodeCheckValidity verifies the CodeDirectory hashes AND the CMS signature over them;
+// pinning the anchor/leaf by hash makes a self-signed god cert acceptable WITHOUT chaining to
+// Apple, while a forged binary (god cert present, signed by another key) fails signature
+// verification. This makes the private key the real gate.
+//
+// NOTE: requirement-language cert hashes (H"...") are SHA-1 of the DER cert, not SHA-256.
+// NOTE: verify on-device — if CheckValidity rejects the self-signed anchor on this macOS build
+//       (errSecCSSignatureUntrustedCert), fall back to a manual CMS verification against the pin.
 static BOOL code_is_god(SecStaticCodeRef code) {
     if (!gPin || !code) return NO;
-    CFDictionaryRef info = NULL; BOOL match = NO;
-    if (SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) == errSecSuccess && info) {
-        CFArrayRef certs = CFDictionaryGetValue(info, kSecCodeInfoCertificates);
-        if (certs && CFArrayGetCount(certs) > 0) {
-            SecCertificateRef leaf = (SecCertificateRef)CFArrayGetValueAtIndex(certs, 0);
-            CFDataRef der = SecCertificateCopyData(leaf);
-            if (der) {
-                uint8_t h[CC_SHA256_DIGEST_LENGTH];
-                CC_SHA256(CFDataGetBytePtr(der), (CC_LONG)CFDataGetLength(der), h);
-                match = (memcmp(h, gPin.bytes, CC_SHA256_DIGEST_LENGTH) == 0);
-                CFRelease(der);
+
+    // 1. Identity: extract the leaf, confirm SHA-256 == pin, and derive its SHA-1 for the pin req.
+    CFDictionaryRef info = NULL;
+    if (SecCodeCopySigningInformation(code, kSecCSSigningInformation, &info) != errSecSuccess || !info)
+        return NO;
+    BOOL identity_ok = NO;
+    uint8_t sha1[CC_SHA1_DIGEST_LENGTH];
+    CFArrayRef certs = CFDictionaryGetValue(info, kSecCodeInfoCertificates);
+    if (certs && CFArrayGetCount(certs) > 0) {
+        SecCertificateRef leaf = (SecCertificateRef)CFArrayGetValueAtIndex(certs, 0);
+        CFDataRef der = SecCertificateCopyData(leaf);
+        if (der) {
+            uint8_t sha256[CC_SHA256_DIGEST_LENGTH];
+            CC_SHA256(CFDataGetBytePtr(der), (CC_LONG)CFDataGetLength(der), sha256);
+            if (memcmp(sha256, gPin.bytes, CC_SHA256_DIGEST_LENGTH) == 0) {
+                CC_SHA1(CFDataGetBytePtr(der), (CC_LONG)CFDataGetLength(der), sha1);
+                identity_ok = YES;
             }
+            CFRelease(der);
         }
-        CFRelease(info);
     }
-    return match;
+    CFRelease(info);
+    if (!identity_ok) { flog("[godmfi] leaf != pin"); return NO; }
+
+    // 2. Possession: verify the signature, pinned to that exact cert as leaf AND anchor (the god
+    //    cert is self-signed, so it is both). A valid CMS from the god key is required to pass.
+    char hex[CC_SHA1_DIGEST_LENGTH * 2 + 1];
+    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) sprintf(hex + 2 * i, "%02x", sha1[i]);
+    NSString *reqStr = [NSString stringWithFormat:
+        @"certificate leaf = H\"%s\" and anchor = H\"%s\"", hex, hex];
+    SecRequirementRef req = NULL;
+    if (SecRequirementCreateWithString((__bridge CFStringRef)reqStr, kSecCSDefaultFlags, &req) != errSecSuccess || !req) {
+        flog("[godmfi] SecRequirementCreateWithString failed");
+        return NO;
+    }
+    // Only the main executable's signature matters for the verdict; amfid validates resources
+    // separately, so skip them here (faster, and avoids spurious resource-level failures).
+    OSStatus v = SecStaticCodeCheckValidity(code, kSecCSDoNotValidateResources, req);
+    CFRelease(req);
+    BOOL ok = (v == errSecSuccess);
+    flog("[godmfi] CheckValidity=%d (leaf+anchor pinned) -> god=%d", (int)v, ok);
+    return ok;
 }
 
 // Get the SecStaticCode amfid is validating straight off the validator object:

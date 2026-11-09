@@ -17,6 +17,12 @@
 #
 set -euo pipefail
 
+# Use the macOS-bundled LibreSSL, NOT whatever openssl is first in $PATH. Under sudo the PATH may
+# resolve `openssl` to Homebrew's OpenSSL 3.x/4.x, whose PKCS#12 MAC (SHA-256) `security import`
+# can't read ("MAC verification failed during PKCS12 import"). LibreSSL's p12 imports fine.
+OPENSSL="${OPENSSL:-/usr/bin/openssl}"
+[ -x "$OPENSSL" ] || OPENSSL="$(command -v openssl)"
+
 CN="AwareMeta God"
 KEYCHAIN="/Library/Keychains/godmfi.keychain-db"
 SUPPORT="/Library/Application Support/godmfi"
@@ -54,7 +60,7 @@ unlock_kc() {
 write_pin() {
     local sha
     sha="$(security find-certificate -c "$CN" -p "$KEYCHAIN" \
-           | openssl x509 -noout -fingerprint -sha256 \
+           | "$OPENSSL" x509 -noout -fingerprint -sha256 \
            | sed -E 's/.*=//; s/://g' | tr 'A-F' 'a-f')"
     [ ${#sha} -eq 64 ] || { echo "failed to compute cert SHA-256"; exit 1; }
     cat > "$PINFILE" <<PL
@@ -88,7 +94,7 @@ cmd_init() {
     else
         echo "[+] generating god identity '$CN' (EC P-256, codeSigning)"
         local tmp; tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' RETURN
-        openssl ecparam -name prime256v1 -genkey -noout -out "$tmp/god.key"
+        "$OPENSSL" ecparam -name prime256v1 -genkey -noout -out "$tmp/god.key"
         cat > "$tmp/god.ext" <<EXT
 [ v3 ]
 basicConstraints=critical,CA:false
@@ -96,12 +102,12 @@ keyUsage=critical,digitalSignature
 extendedKeyUsage=critical,codeSigning
 subjectKeyIdentifier=hash
 EXT
-        openssl req  -new -key "$tmp/god.key" -subj "/CN=$CN" -out "$tmp/god.csr"
-        openssl x509 -req -in "$tmp/god.csr" -signkey "$tmp/god.key" -days "$DAYS" \
+        "$OPENSSL" req  -new -key "$tmp/god.key" -subj "/CN=$CN" -out "$tmp/god.csr"
+        "$OPENSSL" x509 -req -in "$tmp/god.csr" -signkey "$tmp/god.key" -days "$DAYS" \
             -extfile "$tmp/god.ext" -extensions v3 -out "$tmp/god.crt"
         # macOS `security import` rejects an empty-password PKCS#12 (MAC verification fails), so
         # use a throwaway password — the p12 is shredded with the temp dir right after import.
-        openssl pkcs12 -export -inkey "$tmp/god.key" -in "$tmp/god.crt" \
+        "$OPENSSL" pkcs12 -export -inkey "$tmp/god.key" -in "$tmp/god.crt" \
             -name "$CN" -passout pass:godmfi -out "$tmp/god.p12"
         # import key+cert; let codesign use the key without a UI prompt
         security import "$tmp/god.p12" -k "$KEYCHAIN" -P godmfi \
