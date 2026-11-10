@@ -2,14 +2,22 @@
 <html>
 <head><meta charset="utf-8"/><title>Welcome</title></head>
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 11px; margin: 20px;">
-<h2>Plugin Playground</h2>
-<p>Plugin Playground is an open-source <strong>general-purpose runtime tweak system</strong> for macOS Apple Silicon.</p>
-<p>It provides a kernel-level interception engine built on Mach exception ports and ARM64 hardware breakpoints for building plugins, introspection tools, and behavior-modification tweaks that work on any process.</p>
+<h2>God Playground</h2>
+<p>God Playground is an open-source macOS Apple-Silicon toolkit for security research into code signing and entitlements. It is a fork of the Plugin Playground runtime-tweak system, built around <strong>godmfi</strong>.</p>
+
+<h3>godmfi</h3>
+<p><strong>godmfi</strong> is a cert-pinned <code>amfid</code> verdict override. You generate a private "god" code-signing identity; godmfi pins that certificate and makes <code>amfid</code> accept binaries signed with it — and <em>only</em> those — so they load with whatever Apple-private entitlements they embed.</p>
+<p>The gate is cryptographic: godmfi verifies the code signature against the pinned certificate, so possession of the private key — not mere presence of the public cert — is what grants god status.</p>
+
 <h3>Includes</h3>
 <table>
-<tr><td><code>bin/fangs</code></td><td>Core runtime modifier</td></tr>
-<tr><td><code>Plugin Playground.app</code></td><td>GUI for managing tweaks (in <code>/Applications</code>)</td></tr>
-<tr><td><code>tweaks/</code></td><td>User-owned directory for tweak bundles</td></tr>
+<tr><td><code>tweaks/godmfi.dylib</code></td><td>The cert-pinned amfid verdict override</td></tr>
+<tr><td><code>bin/fangs</code></td><td>Persistent injector — keeps amfid patched across respawns</td></tr>
+<tr><td><code>bin/godmfi-launch</code></td><td>Boot bootstrap — patches amfid, then starts fangs</td></tr>
+<tr><td><code>tools/godmfi-setup.sh</code></td><td>Create the god identity and sign your binaries</td></tr>
+<tr><td>Configurator app</td><td>GUI for managing tweaks (in <code>/Applications</code>)</td></tr>
 </table>
+
+<p style="margin-top: 14px; color: #b00;"><strong>Requires System Integrity Protection (SIP) to be disabled.</strong> This is a research tool that patches a system daemon; install it only on a machine you own and have deliberately configured for this.</p>
 </body>
 </html>

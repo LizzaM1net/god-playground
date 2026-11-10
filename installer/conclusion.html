@@ -3,15 +3,26 @@
 <head><meta charset="utf-8"/><title>Installed</title></head>
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; font-size: 11px; margin: 20px;">
 <h2>Installation Complete</h2>
-<p>Plugin Playground has been installed to <code>/opt/pluginplayground</code>.</p>
-<h3>Start exploring</h3>
-<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
-# Patch amfid and initialize the core runtime
-sudo /opt/pluginplayground/bin/godmfi-launch /opt/pluginplayground/bin/fangs
+<p>God Playground is installed under <code>/opt/pluginplayground</code>, and the <strong>godmfi</strong> daemon (<code>com.pluginplayground.godmfi</code>) is already running.</p>
+<p>During install it generated your god signing identity, god-signed <code>fangs</code>, and patched <code>amfid</code>. It restarts at every boot — <code>godmfi-launch</code> re-patches a fresh <code>amfid</code> and brings <code>fangs</code> back up.</p>
 
-# Launch the tweak configurator GUI (from Applications)
-open /Applications/Plugin\ Playground.app
+<h3>Grant private entitlements to your own code</h3>
+<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+# 1. God-sign your binary or .app bundle with the god identity
+sudo /opt/pluginplayground/tools/godmfi-setup.sh sign /path/to/MyTool
+
+# 2. Run it. amfid is already patched by the godmfi daemon, so your signature
+#    is verified against the pinned cert and MyTool loads with its entitlements.
+/path/to/MyTool
 </pre>
 
+<h3>Check status</h3>
+<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+pgrep -x fangs &amp;&amp; echo "godmfi daemon running"
+sudo /opt/pluginplayground/tools/godmfi-setup.sh status
+# logs: /var/log/pluginplayground/godmfi.log
+</pre>
+
+<p>To remove everything (daemon, identity, and files) and return <code>amfid</code> to stock, run <code>uninstall.sh</code> from the source tree.</p>
 </body>
 </html>
