@@ -34,14 +34,14 @@ cp "$SRC/tools/godmfi-setup.sh"        "$PKG_ROOT/tools/"
 cp "$SRC/installer/com.pluginplayground.godmfi.plist" \
    "$STAGING/root/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 
-# Ownership: everything the daemon runs or injects into amfid must be root-owned and not writable
-# by a non-root user — a writable fangs is root-at-boot, a writable godmfi.dylib is code in amfid
-# with no key. pkgbuild's ownership handling varies, so pin it here AND re-assert it in postinstall.
-chown -R 0:0 "$PKG_ROOT/bin" "$PKG_ROOT/tweaks" "$PKG_ROOT/tools"
+# Permissions: make the injected binaries/dylib non-writable as staged. Ownership is NOT chowned
+# here — chowning to root needs root, and install.sh builds as a normal user. Instead pkgbuild
+# records root:wheel via --ownership recommended (below), and the postinstall script re-asserts
+# root:wheel + these modes as root at install time. A writable fangs would be root-at-boot and a
+# writable godmfi.dylib would be code execution in amfid with no key.
 chmod 755 "$PKG_ROOT/bin" "$PKG_ROOT/tweaks" "$PKG_ROOT/tools"
 chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/godmfi-launch" "$PKG_ROOT/tools/godmfi-setup.sh"
 chmod 644 "$PKG_ROOT/tweaks/godmfi.dylib" "$PKG_ROOT/tweaks/godmfi.dylib.options"
-chown 0:0 "$STAGING/root/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 chmod 644 "$STAGING/root/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 
 # pkg install scripts (preinstall tears down the old instance + restarts amfid; postinstall
@@ -55,6 +55,7 @@ chmod 755 "$SCRIPTS/preinstall" "$SCRIPTS/postinstall"
 echo "[+] Building component package..."
 pkgbuild --root "$STAGING/root" \
          --scripts "$SCRIPTS" \
+         --ownership recommended \
          --identifier "com.pluginplayground.core" \
          --version "$VERSION" \
          --install-location "/" \
