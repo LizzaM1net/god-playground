@@ -182,6 +182,19 @@ cmd_status() {
     [ -f "$PINFILE" ] && echo "pin SHA  : $(cmd_pin)"
 }
 
+# Patch amfid and run a god-signed binary — forwards to godmfi-launch.
+cmd_launch() {
+    local gl="/opt/pluginplayground/bin/godmfi-launch"
+    [ -x "$gl" ] || gl="$(cd "$(dirname "$0")/.." && pwd)/.build/godmfi-launch"   # dev build fallback
+    [ -x "$gl" ] || { echo "godmfi-launch not found (install the package)"; exit 1; }
+    case "${1:-}" in
+        -h|--help) exec "$gl" "$1" ;;    # pass help through without elevating
+        "")        exec "$gl" ;;         # no binary -> godmfi-launch prints its usage
+    esac
+    [ "$(id -u)" -eq 0 ] || exec sudo "$0" launch "$@"
+    exec "$gl" "$@"
+}
+
 # Run the amfi verdict-matrix test suite (the same script the configurator's godmfi box runs).
 cmd_test() {
     local script="/opt/pluginplayground/tests/amfi-verdict-matrix.sh"
@@ -201,6 +214,7 @@ Commands:
   init                      generate (once) the god identity + write the pin     [sudo]
   import <god.p12> [pass]   import an existing identity, keep its pin             [sudo]
   sign <path> [ents.plist]  god-sign a binary or .app bundle                     [sudo]
+  launch <bin> [args]       patch amfid and run a god-signed binary              [sudo]
   test [case...]            run the amfi verdict-matrix tests (all, or by number) [sudo]
   pin                       print the pinned cert SHA-256
   status                    show identity + pin state
@@ -215,6 +229,7 @@ case "${1:-help}" in
     init)           need_root "$@"; cmd_init ;;
     import)         need_root "$@"; shift; cmd_import "$@" ;;
     sign)           need_root "$@"; shift; cmd_sign "$@" ;;
+    launch)         shift; cmd_launch "$@" ;;
     test)           need_root "$@"; shift; cmd_test "$@" ;;
     pin)            cmd_pin ;;
     status)         cmd_status ;;
