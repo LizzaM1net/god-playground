@@ -3,6 +3,7 @@
 #import "PPOptionsLoader.h"
 #include <mach/task.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <ptrauth.h>
@@ -15,35 +16,67 @@
 // validateWithError: offset once, keeps the dylib's vnode warm, and code-patches every amfid it
 // sees spawn so the stub dlopen()s the dylib and routes the verdict through godmfi_decide.
 //
-// Hot-reload: fangs holds each trajectory dylib dlopen'd to keep its vnode cs_blob warm. If the
-// file is updated (atomic rename → new inode) or rewritten, amfi_watch_reload() dlclose()s our
-// held handle at once — releasing the old inode so the update can't fault us — and marks it for
-// LAZY re-warm (re-dlopen only when the next amfid actually needs patching). amfid is never
-// touched during the swap. NB the safe way to UPDATE the file is an atomic rename (install/mv),
-// never `cp` over the live inode — a cp truncates the inode we have mapped and SIGKILLs us before
-// we can react, and a dying fangs panics launchd (see macos-launchd-sigtrap-fangs-breakpoint).
+// Pre-warm = avoid re-entrancy. When amfid (patched) dlopen()s our dylib, the kernel asks amfid
+// to validate it; if amfid is mid-validateWithError the request re-enters and DEADLOCKS amfid
+// (and every process waiting on a code-sign check). The fix is that the dylib's signature must
+// already be cached in the kernel BEFORE a patched amfid loads it. fangs warms it by dlopen()'ing
+// it itself — but the warm's own validation is served by amfid, so it is only safe to warm
+// through an amfid that is NOT yet patched (answers normally) or that already holds this dylib
+// (dyld dedups dlopen by path → its stub returns the loaded copy, no new load, no re-entry).
+//
+// Therefore the invariant: NEVER let a patched amfid perform the FIRST (cold) load of an inode.
+//   - amfi_ensure_warm() holds a handle for the CURRENT on-disk inode; on an inode change it
+//     dlclose()s the stale handle first (path-dedup would otherwise hand back the old inode).
+//   - amfi_try_patch() warms the current inode THROUGH the freshly spawned, still-unpatched amfid,
+//     and patches ONLY once that inode is confirmed warm (else it leaves amfid unpatched — safe).
+//   - A running amfid keeps whatever inode it first loaded (path-dedup), so a changed file is
+//     adopted only on respawn: amfi_watch_reload() schedules a debounced `launchctl kickstart -k`
+//     of amfid so a fresh (unpatched) amfid loads the new inode via the warm path above.
+// NB update the file by atomic rename (install/mv), never `cp` over the live inode — a cp
+// truncates the inode we have mapped and SIGKILLs us, and a dying fangs panics launchd
+// (see macos-launchd-sigtrap-fangs-breakpoint).
 #define AMFI_MAX 8
 static uint64_t g_amfi_off = 0;        // validateWithError: offset within AppleMobileFileIntegrity
 static char     g_amfi_img[1024];      // MFI image path (locates amfid's load base)
 static int      g_amfi_ready = 0;      // offset resolved + at least one trajectory dylib present
 static NSArray<NSString *> *g_amfi_dylibs = nil;  // dylibs to warm + patch amfid with
 static void    *g_amfi_handle[AMFI_MAX];          // held dlopen handles (NULL = released / cold)
-static ino_t    g_amfi_ino[AMFI_MAX];             // file inode when warmed
+static ino_t    g_amfi_ino[AMFI_MAX];             // inode we hold warm (what amfid will also load)
 static time_t   g_amfi_mtime[AMFI_MAX];           // file mtime when warmed
 static volatile pid_t g_amfi_pending = 0;         // a spawned amfid awaiting its code-patch
+static int      g_amfi_reload_pending = 0;        // a trajectory dylib changed → amfid must restart
 
-// Lazily dlopen trajectory dylib i (warm its vnode) and record its inode+mtime. No-op if held.
-static void amfi_warm(unsigned i) {
-    if (i >= [g_amfi_dylibs count] || i >= AMFI_MAX || g_amfi_handle[i]) return;
+// Current on-disk inode of trajectory dylib i (0 if missing).
+static ino_t amfi_disk_ino(unsigned i) {
+    struct stat st;
+    return (stat([g_amfi_dylibs[i] UTF8String], &st) == 0) ? st.st_ino : 0;
+}
+
+// Ensure we hold a warm dlopen handle for the CURRENT on-disk inode of trajectory dylib i. If we
+// already hold a DIFFERENT (stale) inode, dlclose it first — dyld dedups dlopen by path, so
+// without the dlclose dlopen would hand back the old image and the new inode would stay cold.
+// The dlopen's signature check is served by whatever amfid is current, so the caller MUST invoke
+// this only when that amfid is safe to ask (unpatched, or already holding this dylib via dedup) —
+// i.e. warm-before-patch against a freshly spawned amfid. Returns 1 iff warm for the current inode.
+static int amfi_ensure_warm(unsigned i) {
+    if (i >= [g_amfi_dylibs count] || i >= AMFI_MAX) return 0;
     const char *p = [g_amfi_dylibs[i] UTF8String];
+    ino_t disk = amfi_disk_ino(i);
+    if (g_amfi_handle[i]) {
+        if (disk != 0 && g_amfi_ino[i] == disk) return 1;     // already warm for the current inode
+        dlclose(g_amfi_handle[i]);                            // stale inode → drop (path-dedup)
+        g_amfi_handle[i] = NULL; g_amfi_ino[i] = 0; g_amfi_mtime[i] = 0;
+        printf("[amfi] %s inode changed — released stale warm handle\n", p); fflush(stdout);
+    }
     void *h = dlopen(p, RTLD_NOW);
-    if (!h) { printf("[amfi] WARN dlopen failed: %s (%s)\n", p, dlerror()); fflush(stdout); return; }
+    if (!h) { printf("[amfi] WARN dlopen failed: %s (%s)\n", p, dlerror()); fflush(stdout); return 0; }
     struct stat st;
     g_amfi_handle[i] = h;
     g_amfi_ino[i]    = (stat(p, &st) == 0) ? st.st_ino : 0;
     g_amfi_mtime[i]  = (stat(p, &st) == 0) ? st.st_mtimespec.tv_sec : 0;
     printf("[amfi] warmed vnode %s (ino %llu)\n", p, (unsigned long long)g_amfi_ino[i]);
     fflush(stdout);
+    return g_amfi_handle[i] != NULL && g_amfi_ino[i] != 0;
 }
 
 // Resolve the offset (MUST precede any godmfi.dylib dlopen — it swizzles the method locally) and
@@ -56,12 +89,14 @@ static void amfi_setup(BOOL ammonia) {
             if (godmfi_resolve_offset(&g_amfi_off, g_amfi_img, sizeof g_amfi_img)) g_amfi_ready = 1;
             else { printf("[amfi] resolve failed — trajectory disabled\n"); fflush(stdout); return; }
         }
-        for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++) amfi_warm(i);
+        for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++) amfi_ensure_warm(i);
     }
 }
 
 // Cheap per-tick watch: if a warmed dylib's file changed (new inode or mtime) or vanished, release
-// our held handle immediately and mark it cold for lazy re-warm. Does NOT touch amfid.
+// our held handle and flag that amfid must be restarted to adopt the new inode. We do NOT re-warm
+// here (that would route the validation through the resident, possibly-patched amfid and could
+// re-enter); the re-warm happens safely in amfi_try_patch against the freshly spawned amfid.
 static void amfi_watch_reload(void) {
     @autoreleasepool {
         for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++) {
@@ -71,21 +106,44 @@ static void amfi_watch_reload(void) {
             if (!ok || st.st_ino != g_amfi_ino[i] || st.st_mtimespec.tv_sec != g_amfi_mtime[i]) {
                 dlclose(g_amfi_handle[i]);
                 g_amfi_handle[i] = NULL; g_amfi_ino[i] = 0; g_amfi_mtime[i] = 0;
-                printf("[amfi] %s changed on disk — released, re-warm lazily\n", [g_amfi_dylibs[i] UTF8String]);
+                g_amfi_reload_pending = 1;
+                printf("[amfi] %s changed on disk — released; scheduling amfid restart\n", [g_amfi_dylibs[i] UTF8String]);
                 fflush(stdout);
             }
         }
     }
 }
 
-// One non-blocking attempt to code-patch a (freshly spawned) amfid. Lazily (re-)warms the patch
-// dylib first. Returns 1 if patched/already, 0 if not ready (caller retries next tick). Patches
-// with the first trajectory dylib — its constructor swizzles validateWithError: for later calls.
+// A trajectory dylib changed: the resident amfid still holds the OLD inode (stale but safe). Kick
+// amfid so a fresh (unpatched) one loads the NEW inode via amfi_try_patch's warm-before-patch.
+// Debounced ≥15s so rapid edits don't trip launchd's respawn throttle (and never raw SIGKILL,
+// which does throttle). Clears the flag only once a kickstart is actually issued.
+static void amfi_reload_amfid_if_pending(void) {
+    if (!g_amfi_reload_pending || !g_amfi_ready) return;
+    static uint64_t last_kick_ns = 0;
+    uint64_t now_ns = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
+    if (last_kick_ns && now_ns - last_kick_ns < 15000000000ULL) return;   // ≥15s between kickstarts
+    printf("[amfi] restarting amfid to adopt the new dylib inode\n"); fflush(stdout);
+    system("launchctl kickstart -k system/com.apple.MobileFileIntegrity >/dev/null 2>&1");
+    last_kick_ns = now_ns;
+    g_amfi_reload_pending = 0;
+}
+
+// One non-blocking attempt to code-patch a (freshly spawned, still-unpatched) amfid. Warms the
+// CURRENT inode of every trajectory dylib FIRST — routed through this unpatched amfid, so the
+// signature check is answered normally and the inode's verdict lands in the kernel cache. Only
+// then, and only if the patch dylib is confirmed warm for its current on-disk inode, do we patch;
+// otherwise we leave amfid unpatched (godmfi inactive, but no cold-first-load deadlock).
+// Returns 1 if patched/already, 0 if not ready (caller retries next tick).
 static int amfi_try_patch(pid_t pid) {
     if (!g_amfi_ready || pid <= 0 || [g_amfi_dylibs count] == 0) return 0;
     for (unsigned i = 0; i < [g_amfi_dylibs count] && i < AMFI_MAX; i++)
-        if (!g_amfi_handle[i]) amfi_warm(i);   // lazy re-warm after a hot-reload release
-    if (!g_amfi_handle[0]) return 0;           // patch dylib not warm yet (can't patch safely)
+        amfi_ensure_warm(i);                   // warm current inode through this unpatched amfid
+    if (!g_amfi_handle[0] || g_amfi_ino[0] != amfi_disk_ino(0)) {
+        printf("[amfi] patch dylib not warm for current inode — skipping patch of pid=%d\n", pid);
+        fflush(stdout);
+        return 0;                              // never patch while the current inode is cold
+    }
     task_t task = TASK_NULL;
     if (task_for_pid(mach_task_self(), pid, &task) != KERN_SUCCESS || task == TASK_NULL) return 0;
     int done = 0;
@@ -198,6 +256,7 @@ int main(void) {
         // Hot-reload watch (release handles for on-disk-changed trajectory dylibs), then drain a
         // pending amfid code-patch (one non-blocking attempt/tick; retries until readable).
         amfi_watch_reload();
+        amfi_reload_amfid_if_pending();   // debounced amfid restart to adopt a changed dylib inode
         if (g_amfi_pending > 0 && amfi_try_patch(g_amfi_pending)) g_amfi_pending = 0;
 
         kr = mach_msg(&msg.req.head, MACH_RCV_MSG | MACH_RCV_TIMEOUT,
