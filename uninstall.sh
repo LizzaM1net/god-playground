@@ -39,6 +39,7 @@ launchctl kickstart -k "$AMFI" >/dev/null 2>&1 || true
 #    the configurator app, logs, and the package receipt.
 echo "Removing files..."
 rm -f "$PLIST" "$OLD_GRANT_PLIST"
+rm -f "/usr/local/bin/godmfi"
 rm -rf "/opt/pluginplayground"
 rm -rf "/Applications/Plugin Playground.app"
 rm -rf "/var/log/pluginplayground"

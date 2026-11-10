@@ -34,6 +34,11 @@ chmod 755 "$SETUP" "$TESTS/amfi-verdict-matrix.sh" 2>/dev/null || true
 
 mkdir -p "$LOGDIR"; chown root:wheel "$LOGDIR"; chmod 755 "$LOGDIR"
 
+# Put `godmfi` on PATH via a symlink in /usr/local/bin (on PATH, root-owned). The real tool stays
+# root-only under /opt, so this exposes it without letting a non-root user replace it.
+mkdir -p /usr/local/bin
+ln -sf "$SETUP" /usr/local/bin/godmfi
+
 # 2. God identity + pin (idempotent: reuses an existing identity/pin, so a reinstall keeps the key
 #    and previously god-signed binaries still verify).
 if [ -x "$SETUP" ]; then
