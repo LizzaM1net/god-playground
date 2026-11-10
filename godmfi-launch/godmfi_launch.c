@@ -24,7 +24,8 @@
 
 extern char **environ;
 
-#define DYLIB "/Library/Application Support/godmfi/godmfi.dylib"
+// Single source of truth: the SAME dylib fangs loads from its tweaks dir (not a second copy).
+#define DYLIB "/opt/pluginplayground/tweaks/godmfi.dylib"
 #define LOG(...) fprintf(stderr, "[godmfi-launch] " __VA_ARGS__)
 
 int main(int argc, char **argv) {

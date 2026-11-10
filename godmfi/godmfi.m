@@ -9,7 +9,7 @@
 //  - is_god() reads the validator's URL straight from its ivar (works for the current
 //    validator too — no init swizzle, no associated object).
 //
-//  Pin: /Library/Application Support/godmfi/pin.plist (cert_sha256, observe, signer_type).
+//  Pin: /opt/pluginplayground/godmfi/pin.plist (cert_sha256, observe, signer_type).
 //
 #import <Foundation/Foundation.h>
 #import <Security/Security.h>
@@ -38,7 +38,7 @@ static void flog(const char *fmt, ...) {
 
 static void load_pin(void) {
     gLog = os_log_create("com.awaremeta.godmfi", "amfid");
-    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:@"/Library/Application Support/godmfi/pin.plist"];
+    NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:@"/opt/pluginplayground/godmfi/pin.plist"];
     gObserve = [d[@"observe"] boolValue];
     gDebug   = [d[@"debug"] boolValue];
     NSString *hex = d[@"cert_sha256"];
@@ -72,8 +72,6 @@ static void load_pin(void) {
 // verification. This makes the private key the real gate.
 //
 // NOTE: requirement-language cert hashes (H"...") are SHA-1 of the DER cert, not SHA-256.
-// NOTE: verify on-device — if CheckValidity rejects the self-signed anchor on this macOS build
-//       (errSecCSSignatureUntrustedCert), fall back to a manual CMS verification against the pin.
 static BOOL code_is_god(SecStaticCodeRef code) {
     if (!gPin || !code) return NO;
 

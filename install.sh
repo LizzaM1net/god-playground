@@ -26,8 +26,11 @@ cp -R "$SRC/.build/configurator.app" "$STAGING/root/Applications/Plugin Playgrou
 cp "$SRC/.build/godmfi.dylib"          "$PKG_ROOT/tweaks/"
 cp "$SRC/godmfi/godmfi.dylib.options"  "$PKG_ROOT/tweaks/"
 
-# tweaks directory owned by the user
-chown "$(id -u):$(id -g)" "$PKG_ROOT/tweaks"
+# tweaks directory is root-only: fangs injects these dylibs into amfid (a root platform daemon),
+# so a non-root user must NOT be able to replace godmfi.dylib here — that would be code execution
+# in amfid with no key needed. Keep it root:wheel 0755 (add tweaks via sudo on a godmfi box).
+chown 0:0 "$PKG_ROOT/tweaks"
+chmod 755 "$PKG_ROOT/tweaks"
 
 chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/godmfi-launch"
 

@@ -24,8 +24,12 @@ OPENSSL="${OPENSSL:-/usr/bin/openssl}"
 [ -x "$OPENSSL" ] || OPENSSL="$(command -v openssl)"
 
 CN="AwareMeta God"
-KEYCHAIN="/Library/Keychains/godmfi.keychain-db"
-SUPPORT="/Library/Application Support/godmfi"
+# Everything godmfi-specific lives in ONE root-only dir under /opt/pluginplayground: the keychain
+# (private key), its password, the public cert and the runtime pin. The dylib itself is NOT here —
+# it lives in the tweaks dir fangs scans (/opt/pluginplayground/tweaks). This dir must stay
+# root:wheel (not user-writable): whoever can rewrite pin.plist redefines the god cert.
+SUPPORT="/opt/pluginplayground/godmfi"
+KEYCHAIN="$SUPPORT/godmfi.keychain-db"
 PINFILE="$SUPPORT/pin.plist"
 PWFILE="$SUPPORT/keychain.pass"      # random keychain password, root-only (0600)
 CRTFILE="$SUPPORT/god.crt"           # public cert, for reference / pin recompute
