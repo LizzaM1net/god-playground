@@ -7,7 +7,7 @@
 <p>During install it generated your god signing identity, god-signed <code>fangs</code>, and patched <code>amfid</code>. It restarts at every boot — <code>godmfi-launch</code> re-patches a fresh <code>amfid</code> and brings <code>fangs</code> back up.</p>
 
 <h3>Grant private entitlements to your own code</h3>
-<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+<pre style="background: #1e1e1e; color: #e8e8e8; padding: 10px; border-radius: 4px; border: 1px solid #333; overflow-x: auto;">
 # 1. God-sign your binary or .app bundle with the god identity
 sudo /opt/pluginplayground/tools/godmfi-setup.sh sign /path/to/MyTool
 
@@ -17,7 +17,7 @@ sudo /opt/pluginplayground/tools/godmfi-setup.sh sign /path/to/MyTool
 </pre>
 
 <h3>Check status</h3>
-<pre style="background: #f5f5f5; padding: 10px; border-radius: 4px;">
+<pre style="background: #1e1e1e; color: #e8e8e8; padding: 10px; border-radius: 4px; border: 1px solid #333; overflow-x: auto;">
 pgrep -x fangs &amp;&amp; echo "godmfi daemon running"
 sudo /opt/pluginplayground/tools/godmfi-setup.sh status
 # logs: /var/log/pluginplayground/godmfi.log
