@@ -1,0 +1,67 @@
+#!/bin/sh
+#
+# postinstall — the new payload is now on disk under /opt/pluginplayground. Finish provisioning:
+#   1. lock down ownership/permissions of the injected binaries + the tweaks dir
+#   2. generate (once) the god code-signing identity + runtime pin        [godmfi-setup.sh init]
+#   3. god-sign fangs so the patched amfid grants it the restricted entitlements it needs
+#   4. install/refresh the LaunchDaemon, restart amfid clean, and start the daemon
+#
+# amfid is deliberately restarted (unpatched) right before the daemon starts: the FIRST patch is
+# then applied by godmfi-launch as it brings fangs up, per the godmfi bootstrap design.
+#
+set -u
+
+ROOT="/opt/pluginplayground"
+BIN="$ROOT/bin"
+TWEAKS="$ROOT/tweaks"
+TOOLS="$ROOT/tools"
+SETUP="$TOOLS/godmfi-setup.sh"
+PLIST="/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
+AMFI="system/com.apple.MobileFileIntegrity"
+LOGDIR="/var/log/pluginplayground"
+
+log() { echo "[postinstall] $*"; }
+
+# 1. Ownership + permissions. Everything the daemon runs or injects must be root-owned and not
+#    writable by a non-root user — a writable fangs is root-at-boot, a writable godmfi.dylib is
+#    code-in-amfid with no key. (pkg ownership can vary; set it explicitly.)
+chown -R root:wheel "$BIN" "$TWEAKS" "$TOOLS" 2>/dev/null || true
+chmod 755 "$BIN" "$TWEAKS" "$TOOLS" 2>/dev/null || true
+chmod 755 "$BIN/fangs" "$BIN/godmfi-launch" 2>/dev/null || true
+chmod 644 "$TWEAKS"/*.dylib "$TWEAKS"/*.options 2>/dev/null || true
+chmod 755 "$SETUP" 2>/dev/null || true
+
+mkdir -p "$LOGDIR"; chown root:wheel "$LOGDIR"; chmod 755 "$LOGDIR"
+
+# 2. God identity + pin (idempotent: reuses an existing identity/pin, so a reinstall keeps the key
+#    and previously god-signed binaries still verify).
+if [ -x "$SETUP" ]; then
+    log "provisioning god identity + pin"
+    "$SETUP" init || { log "ERROR: godmfi-setup init failed"; exit 1; }
+else
+    log "ERROR: $SETUP missing — cannot provision god identity"
+    exit 1
+fi
+
+# 3. God-sign fangs. It ships from the build with the restricted entitlements embedded
+#    (Master.entitlements); signing with no plist re-signs with the god cert while preserving them,
+#    so the patched amfid will verify its signature against the pin and grant those entitlements.
+log "god-signing fangs"
+"$SETUP" sign "$BIN/fangs" || { log "ERROR: god-signing fangs failed"; exit 1; }
+
+# 4. Install/refresh the daemon, restart amfid clean, then start the daemon so godmfi-launch
+#    applies the first patch to the fresh (unpatched) amfid as it launches fangs.
+chown root:wheel "$PLIST" 2>/dev/null || true
+chmod 644 "$PLIST" 2>/dev/null || true
+
+log "restarting amfid (clean/unpatched) before starting the daemon"
+launchctl kickstart -k "$AMFI" >/dev/null 2>&1 || true
+
+log "starting com.pluginplayground.godmfi"
+launchctl bootout system/com.pluginplayground.godmfi 2>/dev/null || true
+if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
+    launchctl load -w "$PLIST" 2>/dev/null || { log "ERROR: could not load $PLIST"; exit 1; }
+fi
+
+log "done — fangs will be brought up by godmfi-launch (logs in $LOGDIR)"
+exit 0

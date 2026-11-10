@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  godmfi system daemon. launchd runs godmfi-launch at boot; godmfi-launch code-patches the live
+  (freshly booted, unpatched) amfid, then spawns fangs and waits on it. fangs maintains the patch
+  across every later amfid respawn. KeepAlive + godmfi-launch waiting on fangs means exactly one
+  fangs runs; if it dies, launchd relaunches godmfi-launch (re-patch is idempotent).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pluginplayground.godmfi</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/pluginplayground/bin/godmfi-launch</string>
+        <string>/opt/pluginplayground/bin/fangs</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/pluginplayground/godmfi.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/pluginplayground/godmfi.err</string>
+</dict>
+</plist>

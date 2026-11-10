@@ -1,0 +1,48 @@
+#!/bin/sh
+#
+# preinstall — tear down any previous Plugin Playground / godmfi instance BEFORE the new payload
+# lands, and return amfid to a clean, unpatched state.
+#
+# Ordering matters (see fangs' re-entrancy notes): stop fangs first, then restart amfid, so that
+# when the new payload replaces godmfi.dylib no live amfid is still holding the old inode, and the
+# resident amfid (which the old fangs had code-patched + loaded the old dylib into) is discarded.
+# The fresh amfid stays unpatched until postinstall's godmfi-launch applies the first patch.
+#
+set -u
+
+AMFI="system/com.apple.MobileFileIntegrity"
+PLIST="/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
+OLD_GRANT_PLIST="/Library/LaunchDaemons/com.pluginplayground.grant.plist"
+
+log() { echo "[preinstall] $*"; }
+
+# 1. Stop the godmfi daemon (and the pre-godmfi 'grant' daemon, if this box had it). bootout sends
+#    SIGTERM to godmfi-launch + fangs and clears KeepAlive so they do not get relaunched.
+for p in "$PLIST" "$OLD_GRANT_PLIST"; do
+    [ -f "$p" ] || continue
+    log "unloading $(basename "$p")"
+    launchctl bootout system "$p" 2>/dev/null || launchctl unload -w "$p" 2>/dev/null || true
+done
+launchctl bootout system/com.pluginplayground.godmfi 2>/dev/null || true
+launchctl bootout system/com.pluginplayground.grant  2>/dev/null || true
+
+# 2. Gracefully stop any stray fangs. SIGTERM ONLY — fangs catches it, detaches (clears its hw
+#    breakpoints in launchd) and exits cleanly; a SIGKILL would leave launchd wedged and trip its
+#    respawn throttle. Give it a few seconds to unwind before moving on.
+if pgrep -x fangs >/dev/null 2>&1; then
+    log "sending SIGTERM to running fangs"
+    pkill -TERM -x fangs 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -x fangs >/dev/null 2>&1 || break
+        sleep 1
+    done
+    pgrep -x fangs >/dev/null 2>&1 && log "WARN: fangs still running; leaving it for launchd to reap (not SIGKILLing)"
+fi
+
+# 3. Restart amfid so the fresh instance is unpatched and no longer holds the old godmfi.dylib
+#    inode. kickstart -k (not kill -9) so launchd does not throttle the respawn.
+log "restarting amfid to drop any existing patch"
+launchctl kickstart -k "$AMFI" >/dev/null 2>&1 || true
+
+log "done"
+exit 0

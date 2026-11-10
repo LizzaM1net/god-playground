@@ -10,6 +10,13 @@
 //       amfid's later dlopen of it via the stub won't re-enter)
 //    2. find the live amfid (kickstart only if absent) + code-patch its validateWithError:
 //    3. launch the target; its first validation triggers the stub -> dlopen godmfi -> override
+//    4. wait on the target, holding the pre-warm handle, so this stays the target's live parent
+//
+//  This is also the godmfi LaunchDaemon front (com.pluginplayground.godmfi, KeepAlive): launchd
+//  runs `godmfi-launch /opt/pluginplayground/bin/fangs` at boot. Because we wait on the child
+//  instead of returning, launchd tracks THIS process for fangs's whole life; if we exited right
+//  after spawning, KeepAlive would relaunch us and we would patch (idempotently) and spawn a
+//  SECOND fangs. When the target exits we exit with its status and launchd relaunches us.
 //
 //  Run via sudo.
 //
@@ -19,6 +26,8 @@
 #include <unistd.h>
 #include <dlfcn.h>
 #include <spawn.h>
+#include <errno.h>
+#include <sys/wait.h>
 #include <mach/mach.h>
 #include "godmfi_patch.h"
 
@@ -69,8 +78,14 @@ int main(int argc, char **argv) {
     if (posix_spawn(&sp, argv[1], NULL, NULL, &argv[1], environ) != 0) { LOG("spawn %s failed\n", argv[1]); return 1; }
     LOG("launched %s (pid %d)\n", argv[1], sp);
 
-    // 4. give amfid a moment to grab the dylib during the target's validation, then release.
-    usleep(500000);
-    LOG("done — target validated & kernel-cached; releasing.\n");
-    return 0;
+    // 4. wait on the target. We stay alive as its parent for its whole life, which both keeps the
+    //    pre-warm dlopen handle (`warm`) mapped — so the god dylib's signature stays kernel-cached
+    //    and a patched amfid never cold-loads it — and makes us a well-behaved KeepAlive daemon
+    //    front (see the header): one godmfi-launch, one fangs. Exit with the target's status.
+    int wst = 0;
+    while (waitpid(sp, &wst, 0) < 0 && errno == EINTR) { /* retry */ }
+    (void)warm;   // held until here on purpose
+    int rc = WIFEXITED(wst) ? WEXITSTATUS(wst) : 1;
+    LOG("target %d exited (status %d) — releasing.\n", sp, rc);
+    return rc;
 }
