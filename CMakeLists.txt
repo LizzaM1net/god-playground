@@ -213,6 +213,7 @@ if(BUILD_CONFIGURATOR)
         configurator/Controllers/PPListEditorController.m
         configurator/Controllers/PPMainViewController.m
         configurator/Controllers/PPTweakEditorController.m
+        configurator/Controllers/PPGodmfiTestController.m
 
         configurator/Drill.png
         configurator/AppIcon.icns

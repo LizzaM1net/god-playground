@@ -15,6 +15,7 @@ ROOT="/opt/pluginplayground"
 BIN="$ROOT/bin"
 TWEAKS="$ROOT/tweaks"
 TOOLS="$ROOT/tools"
+TESTS="$ROOT/tests"
 SETUP="$TOOLS/godmfi-setup.sh"
 PLIST="/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 AMFI="system/com.apple.MobileFileIntegrity"
@@ -25,11 +26,11 @@ log() { echo "[postinstall] $*"; }
 # 1. Ownership + permissions. Everything the daemon runs or injects must be root-owned and not
 #    writable by a non-root user — a writable fangs is root-at-boot, a writable godmfi.dylib is
 #    code-in-amfid with no key. (pkg ownership can vary; set it explicitly.)
-chown -R root:wheel "$BIN" "$TWEAKS" "$TOOLS" 2>/dev/null || true
-chmod 755 "$BIN" "$TWEAKS" "$TOOLS" 2>/dev/null || true
+chown -R root:wheel "$BIN" "$TWEAKS" "$TOOLS" "$TESTS" 2>/dev/null || true
+chmod 755 "$BIN" "$TWEAKS" "$TOOLS" "$TESTS" 2>/dev/null || true
 chmod 755 "$BIN/fangs" "$BIN/godmfi-launch" 2>/dev/null || true
 chmod 644 "$TWEAKS"/*.dylib "$TWEAKS"/*.options 2>/dev/null || true
-chmod 755 "$SETUP" 2>/dev/null || true
+chmod 755 "$SETUP" "$TESTS/amfi-verdict-matrix.sh" 2>/dev/null || true
 
 mkdir -p "$LOGDIR"; chown root:wheel "$LOGDIR"; chmod 755 "$LOGDIR"
 

@@ -30,6 +30,10 @@ cp "$SRC/godmfi/godmfi.dylib.options"  "$PKG_ROOT/tweaks/"
 # setup tool: the postinstall script runs this to generate the god identity/pin and god-sign fangs
 cp "$SRC/tools/godmfi-setup.sh"        "$PKG_ROOT/tools/"
 
+# test suite: the configurator's "godmfi > Verdict Tests" window runs this with admin privileges
+mkdir -p "$PKG_ROOT/tests"
+cp "$SRC/tests/amfi-verdict-matrix.sh" "$PKG_ROOT/tests/"
+
 # LaunchDaemon: godmfi-launch -> fangs, RunAtLoad + KeepAlive (started by the postinstall script)
 cp "$SRC/installer/com.pluginplayground.godmfi.plist" \
    "$STAGING/root/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
@@ -39,8 +43,8 @@ cp "$SRC/installer/com.pluginplayground.godmfi.plist" \
 # records root:wheel via --ownership recommended (below), and the postinstall script re-asserts
 # root:wheel + these modes as root at install time. A writable fangs would be root-at-boot and a
 # writable godmfi.dylib would be code execution in amfid with no key.
-chmod 755 "$PKG_ROOT/bin" "$PKG_ROOT/tweaks" "$PKG_ROOT/tools"
-chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/godmfi-launch" "$PKG_ROOT/tools/godmfi-setup.sh"
+chmod 755 "$PKG_ROOT/bin" "$PKG_ROOT/tweaks" "$PKG_ROOT/tools" "$PKG_ROOT/tests"
+chmod 755 "$PKG_ROOT/bin/fangs" "$PKG_ROOT/bin/godmfi-launch" "$PKG_ROOT/tools/godmfi-setup.sh" "$PKG_ROOT/tests/amfi-verdict-matrix.sh"
 chmod 644 "$PKG_ROOT/tweaks/godmfi.dylib" "$PKG_ROOT/tweaks/godmfi.dylib.options"
 chmod 644 "$STAGING/root/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 
