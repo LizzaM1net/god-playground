@@ -182,6 +182,14 @@ cmd_status() {
     [ -f "$PINFILE" ] && echo "pin SHA  : $(cmd_pin)"
 }
 
+# Run the amfi verdict-matrix test suite (the same script the configurator's godmfi box runs).
+cmd_test() {
+    local script="/opt/pluginplayground/tests/amfi-verdict-matrix.sh"
+    [ -x "$script" ] || script="$(cd "$(dirname "$0")/.." && pwd)/tests/amfi-verdict-matrix.sh"
+    [ -x "$script" ] || { echo "test script not found (install the package)"; exit 1; }
+    exec "$script" "$@"
+}
+
 cmd_help() {
     cat <<HELP
 godmfi — manage the god code-signing identity used by godmfi.
@@ -193,6 +201,7 @@ Commands:
   init                      generate (once) the god identity + write the pin     [sudo]
   import <god.p12> [pass]   import an existing identity, keep its pin             [sudo]
   sign <path> [ents.plist]  god-sign a binary or .app bundle                     [sudo]
+  test [case...]            run the amfi verdict-matrix tests (all, or by number) [sudo]
   pin                       print the pinned cert SHA-256
   status                    show identity + pin state
   help                      show this help
@@ -206,6 +215,7 @@ case "${1:-help}" in
     init)           need_root "$@"; cmd_init ;;
     import)         need_root "$@"; shift; cmd_import "$@" ;;
     sign)           need_root "$@"; shift; cmd_sign "$@" ;;
+    test)           need_root "$@"; shift; cmd_test "$@" ;;
     pin)            cmd_pin ;;
     status)         cmd_status ;;
     help|-h|--help) cmd_help ;;
