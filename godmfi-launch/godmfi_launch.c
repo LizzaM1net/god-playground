@@ -37,8 +37,29 @@ extern char **environ;
 #define DYLIB "/opt/pluginplayground/tweaks/godmfi.dylib"
 #define LOG(...) fprintf(stderr, "[godmfi-launch] " __VA_ARGS__)
 
+static void usage(FILE *f) {
+    fputs(
+        "godmfi-launch — patch the live amfid, then run a god-signed binary under the override.\n"
+        "\n"
+        "Usage:\n"
+        "  sudo godmfi-launch <god-signed-binary> [args...]\n"
+        "  godmfi-launch -h | --help\n"
+        "\n"
+        "What it does:\n"
+        "  1. resolve amfid's validateWithError: and pre-warm the god dylib\n"
+        "  2. code-patch the running amfid so god-signed binaries get their entitlements\n"
+        "  3. launch the binary and wait on it (its exit status becomes ours)\n"
+        "\n"
+        "Also the com.pluginplayground.godmfi LaunchDaemon's program: at boot it runs\n"
+        "  godmfi-launch /opt/pluginplayground/bin/fangs\n"
+        "\n"
+        "Requires root (sudo) and SIP disabled. Dylib loaded into amfid:\n"
+        "  " DYLIB "\n", f);
+}
+
 int main(int argc, char **argv) {
-    if (argc < 2) { LOG("usage: godmfi-launch <god-signed-binary> [args...]\n"); return 2; }
+    if (argc >= 2 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) { usage(stdout); return 0; }
+    if (argc < 2) { usage(stderr); return 2; }
 
     // 0. resolve validateWithError:'s offset BEFORE pre-warm (pre-warm swizzles it locally)
     uint64_t off = 0; char img[1024];

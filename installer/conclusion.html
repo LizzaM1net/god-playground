@@ -9,7 +9,7 @@
 <h3>Grant private entitlements to your own code</h3>
 <pre style="background: #1e1e1e; color: #e8e8e8; padding: 10px; border-radius: 4px; border: 1px solid #333; overflow-x: auto;">
 # 1. God-sign your binary or .app bundle with the god identity
-sudo /opt/pluginplayground/tools/godmfi-setup.sh sign /path/to/MyTool
+sudo /opt/pluginplayground/tools/godmfi sign /path/to/MyTool
 
 # 2. Run it. amfid is already patched by the godmfi daemon, so your signature
 #    is verified against the pinned cert and MyTool loads with its entitlements.
@@ -19,7 +19,7 @@ sudo /opt/pluginplayground/tools/godmfi-setup.sh sign /path/to/MyTool
 <h3>Check status</h3>
 <pre style="background: #1e1e1e; color: #e8e8e8; padding: 10px; border-radius: 4px; border: 1px solid #333; overflow-x: auto;">
 pgrep -x fangs &amp;&amp; echo "godmfi daemon running"
-sudo /opt/pluginplayground/tools/godmfi-setup.sh status
+/opt/pluginplayground/tools/godmfi status
 # logs: /var/log/pluginplayground/godmfi.log
 </pre>
 

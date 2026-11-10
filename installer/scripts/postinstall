@@ -2,7 +2,7 @@
 #
 # postinstall — the new payload is now on disk under /opt/pluginplayground. Finish provisioning:
 #   1. lock down ownership/permissions of the injected binaries + the tweaks dir
-#   2. generate (once) the god code-signing identity + runtime pin        [godmfi-setup.sh init]
+#   2. generate (once) the god code-signing identity + runtime pin        [godmfi init]
 #   3. god-sign fangs so the patched amfid grants it the restricted entitlements it needs
 #   4. install/refresh the LaunchDaemon, restart amfid clean, and start the daemon
 #
@@ -16,7 +16,7 @@ BIN="$ROOT/bin"
 TWEAKS="$ROOT/tweaks"
 TOOLS="$ROOT/tools"
 TESTS="$ROOT/tests"
-SETUP="$TOOLS/godmfi-setup.sh"
+SETUP="$TOOLS/godmfi"
 PLIST="/Library/LaunchDaemons/com.pluginplayground.godmfi.plist"
 AMFI="system/com.apple.MobileFileIntegrity"
 LOGDIR="/var/log/pluginplayground"
@@ -38,7 +38,7 @@ mkdir -p "$LOGDIR"; chown root:wheel "$LOGDIR"; chmod 755 "$LOGDIR"
 #    and previously god-signed binaries still verify).
 if [ -x "$SETUP" ]; then
     log "provisioning god identity + pin"
-    "$SETUP" init || { log "ERROR: godmfi-setup init failed"; exit 1; }
+    "$SETUP" init || { log "ERROR: godmfi init failed"; exit 1; }
 else
     log "ERROR: $SETUP missing — cannot provision god identity"
     exit 1

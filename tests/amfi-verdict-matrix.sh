@@ -37,8 +37,8 @@ set -u
 if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
 
 OPENSSL="/usr/bin/openssl"                                  # macOS LibreSSL (p12 imports cleanly)
-SETUP="/opt/pluginplayground/tools/godmfi-setup.sh"        # installed god identity tool
-[ -x "$SETUP" ] || SETUP="$(cd "$(dirname "$0")/.." && pwd)/tools/godmfi-setup.sh"
+SETUP="/opt/pluginplayground/tools/godmfi"                 # installed god identity tool
+[ -x "$SETUP" ] || SETUP="$(cd "$(dirname "$0")/.." && pwd)/tools/godmfi"
 IMP_CN="AwareMeta God"                                      # same CN as the real identity, diff key
 
 WORK="$(mktemp -d /tmp/godmfi-amfi.XXXXXX)"
@@ -48,7 +48,7 @@ trap cleanup EXIT INT TERM
 
 # ---- environment ----------------------------------------------------------------------------
 daemon="STOPPED"; pgrep -x fangs >/dev/null 2>&1 && daemon="RUNNING"
-god_ok="no"; [ -x "$SETUP" ] && "$SETUP" status 2>/dev/null | grep -qi "present" && god_ok="yes"
+god_ok="no"; [ -x "$SETUP" ] && "$SETUP" status 2>/dev/null | grep -qi "identity.*present" && god_ok="yes"
 
 echo "godmfi daemon : $daemon"
 echo "god identity  : $god_ok   ($SETUP)"
