@@ -20,6 +20,9 @@
 @property (weak) IBOutlet NSImageView *tweakStatusImageView;
 @property (weak) IBOutlet NSTextField *tweakStatusLabel;
 @property (weak) IBOutlet NSButton *installControlButton;
+@property (weak) IBOutlet NSImageView *godmfiStatusImageView;
+@property (weak) IBOutlet NSTextField *godmfiStatusLabel;
+@property (weak) IBOutlet NSButton *godmfiRunButton;
 @end
 
 @interface PPNSSwitch : NSSwitch

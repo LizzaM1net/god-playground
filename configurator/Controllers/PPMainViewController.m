@@ -1,6 +1,7 @@
 //Created by Salty on 8/25/26.
 
 #import "PPMainViewController.h"
+#import "PPGodmfiTestController.h"
 #import "../Services/PPPrivledgedWriter.h"
 
 @implementation PPNSSwitch
@@ -24,9 +25,59 @@
     self.tweaksTableView.columnAutoresizingStyle = NSTableViewLastColumnOnlyAutoresizingStyle;
     
     [self refreshDaemonBox:nil];
-    
+
     [self reloadGlobalBlock];
     [self reloadTweaksList];
+    [self refreshGodmfiBox];
+}
+
+// godmfi box: unlike the Daemon box (fangs), this shows no verdict on launch — it stays neutral
+// until "Run Tests" is pressed, which runs the installed amfi verdict-matrix script with admin
+// privileges and then reflects the pass/fail summary here.
+- (void)refreshGodmfiBox {
+    BOOL installed = [PPGodmfiTestController isInstalled];
+    self.godmfiRunButton.enabled = installed;
+    if (!installed) {
+        self.godmfiStatusImageView.image = [NSImage imageNamed:@"NSStatusNone"];
+        self.godmfiStatusLabel.stringValue = @"Test script not installed — install the package.";
+    }
+}
+
+- (IBAction)runGodmfiTests:(NSButton *)sender {
+    if (![PPGodmfiTestController isInstalled]) { [self refreshGodmfiBox]; return; }
+    self.godmfiRunButton.enabled = NO;
+    self.godmfiStatusImageView.image = [NSImage imageNamed:@"NSStatusPartiallyAvailable"];
+    self.godmfiStatusLabel.stringValue = @"Running… authorize when prompted.";
+    [PPGodmfiTestController runWithCompletion:^(NSString *output) {
+        [self applyGodmfiResult:output];
+        self.godmfiRunButton.enabled = YES;
+    }];
+}
+
+- (void)applyGodmfiResult:(NSString *)output {
+    __block NSString *summary = nil;
+    [output enumerateLinesUsingBlock:^(NSString *line, BOOL *stop) {
+        if ([line hasPrefix:@"pass="]) { summary = line; *stop = YES; }
+    }];
+    long pass = -1, fail = -1, skipped = 0;
+    if (summary) sscanf(summary.UTF8String, "pass=%ld fail=%ld skipped=%ld", &pass, &fail, &skipped);
+
+    NSString *img, *label;
+    if ([output containsString:@"Cancelled"]) {
+        img = @"NSStatusNone";                label = @"Cancelled — not authorized.";
+    } else if (fail < 0) {
+        img = @"NSStatusPartiallyAvailable";   label = @"Ran, but results could not be parsed.";
+    } else if (fail == 0) {
+        img = @"NSStatusAvailable";
+        label = skipped > 0
+            ? [NSString stringWithFormat:@"All %ld checks passed (%ld skipped).", pass, skipped]
+            : [NSString stringWithFormat:@"All %ld checks passed.", pass];
+    } else {
+        img = @"NSStatusUnavailable";
+        label = [NSString stringWithFormat:@"%ld failed, %ld passed.", fail, pass];
+    }
+    self.godmfiStatusImageView.image = [NSImage imageNamed:img];
+    self.godmfiStatusLabel.stringValue = label;
 }
 
 - (void)reloadGlobalBlock{

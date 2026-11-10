@@ -9,6 +9,9 @@
         <customObject id="-2" userLabel="File's Owner" customClass="PPMainViewController">
             <connections>
                 <outlet property="installControlButton" destination="gpJ-zH-1cc" id="U1x-gI-uKA"/>
+                <outlet property="godmfiStatusImageView" destination="GmI-mg-001" id="Gmo-ut-001"/>
+                <outlet property="godmfiStatusLabel" destination="GmL-bl-001" id="Gmo-ut-002"/>
+                <outlet property="godmfiRunButton" destination="GmR-bn-001" id="Gmo-ut-003"/>
                 <outlet property="tweakStatusImageView" destination="0XJ-9n-YHa" id="cSY-yY-aeD"/>
                 <outlet property="tweakStatusLabel" destination="0SY-EC-kb0" id="tZD-R0-pwJ"/>
                 <outlet property="tweaksTableView" destination="DZD-Oj-q80" id="hdg-uy-m76"/>
@@ -18,7 +21,7 @@
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
         <customView id="c22-O7-iKe">
-            <rect key="frame" x="0.0" y="0.0" width="517" height="575"/>
+            <rect key="frame" x="0.0" y="0.0" width="517" height="636"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
             <subviews>
                 <box fixedFrame="YES" title="Daemon" translatesAutoresizingMaskIntoConstraints="NO" id="8mO-ye-fM6">
@@ -175,7 +178,7 @@
                     </view>
                 </box>
                 <box fixedFrame="YES" title="Global Settings" translatesAutoresizingMaskIntoConstraints="NO" id="npd-Hz-a9h">
-                    <rect key="frame" x="20" y="400" width="477" height="155"/>
+                    <rect key="frame" x="20" y="461" width="477" height="155"/>
                     <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
                     <view key="contentView" id="gHu-Ys-Ubl">
                         <rect key="frame" x="0.0" y="0.0" width="477" height="143"/>
@@ -289,6 +292,41 @@
                         </subviews>
                     </view>
                 </box>
+                <box fixedFrame="YES" title="godmfi" translatesAutoresizingMaskIntoConstraints="NO" id="GmB-ox-001">
+                    <rect key="frame" x="20" y="400" width="477" height="53"/>
+                    <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                    <view key="contentView" id="GmC-vw-001">
+                        <rect key="frame" x="0.0" y="0.0" width="477" height="41"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GmI-mg-001">
+                                <rect key="frame" x="20" y="-3" width="48" height="48"/>
+                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                <imageCell key="cell" refusesFirstResponder="YES" alignment="left" imageScaling="proportionallyDown" image="NSStatusNone" id="GmI-cl-001"/>
+                            </imageView>
+                            <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GmL-bl-001">
+                                <rect key="frame" x="76" y="13" width="252" height="16"/>
+                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                <textFieldCell key="cell" lineBreakMode="clipping" title="Not checked — press Run Tests" id="GmL-cl-001">
+                                    <font key="font" metaFont="system"/>
+                                    <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <button verticalHuggingPriority="750" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="GmR-bn-001">
+                                <rect key="frame" x="334" y="9" width="123" height="24"/>
+                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+                                <buttonCell key="cell" type="push" title="Run Tests" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="GmR-cl-001">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="system"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="runGodmfiTests:" target="-2" id="Gma-ct-001"/>
+                                </connections>
+                            </button>
+                        </subviews>
+                    </view>
+                </box>
             </subviews>
             <point key="canvasLocation" x="157.5" y="106.5"/>
         </customView>
@@ -297,6 +335,7 @@
     </objects>
     <resources>
         <image name="NSRefreshTemplate" width="18" height="21"/>
+        <image name="NSStatusNone" width="16" height="16"/>
         <image name="NSStatusPartiallyAvailable" width="16" height="16"/>
     </resources>
 </document>

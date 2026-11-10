@@ -308,12 +308,12 @@
             <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
             <windowCollectionBehavior key="collectionBehavior" fullScreenNone="YES"/>
             <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
-            <rect key="contentRect" x="335" y="390" width="517" height="575"/>
+            <rect key="contentRect" x="335" y="390" width="517" height="636"/>
             <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1205"/>
-            <value key="minSize" type="size" width="517" height="575"/>
-            <value key="maxSize" type="size" width="517" height="880"/>
+            <value key="minSize" type="size" width="517" height="636"/>
+            <value key="maxSize" type="size" width="517" height="941"/>
             <view key="contentView" id="EiT-Mj-1SZ">
-                <rect key="frame" x="0.0" y="0.0" width="517" height="575"/>
+                <rect key="frame" x="0.0" y="0.0" width="517" height="636"/>
                 <autoresizingMask key="autoresizingMask"/>
             </view>
             <connections>
